@@ -1,0 +1,244 @@
+from flask import Flask
+from flask import request
+from flask import render_template,url_for,session,redirect
+import pymongo
+import json
+import bcrypt
+app=Flask(__name__)
+
+def carga():
+    
+    with open("menu.json") as mi_menu:
+        menus =json.loads(mi_menu.read())
+        return menus
+
+menuss=carga()
+#Conector a registro de usuarios-------------------------------------
+
+conec= menuss['conector'][0]
+db= menuss['conector'][1]
+col= menuss['conector'][2] 
+
+myclient = pymongo.MongoClient(conec)
+mydb = myclient[db] #Se crea base de datos 
+mycol = mydb[col]#se crea una coleccion = "TABLA"
+
+#Conector a registro de compra de los usuarios-------------------------------------
+
+conec2= menuss['compra'][0]
+db2= menuss['compra'][1]
+col2= menuss['compra'][2] 
+
+myclient2 = pymongo.MongoClient(conec2)
+mydb2 = myclient2[db2] #Se crea base de datos 
+mycol2 = mydb2[col2]#se crea una coleccion = "TABLA"
+
+
+
+
+@app.route('/')
+def index():
+    #session.clear()
+    if 'codigo_u' in session:
+        #return 'ya estas logiado con ' + session['username']
+        return render_template("compra.html")
+
+    elif 'codigo_ad' in session:
+        #return 'ya estas logiado con ' + session['username']
+        return render_template("miss_recibe.html")
+    
+    return render_template("index.html")
+
+
+@app.route('/alta.html')
+def alt():
+    
+    return render_template("alta.html")
+@app.route('/baja.html')
+def baj():
+    
+    return render_template("baja.html")
+
+@app.route('/consulta.html')
+def cons():
+    
+    return render_template("consulta.html")
+
+
+@app.route('/alta', methods = ['POST','GET'])
+def alta():
+
+    if request.method == 'POST':
+        users = mycol
+        existing_user = users.find_one({'codigo' : request.form['codigo_u']})
+        
+        if existing_user is None:
+            #hashpass = bcrypt.hashpw(request.form['pass'].encode('utf-8'),bcrypt.gensalt())
+            users.insert_one({
+                'nombre' : request.form['username'], 
+                'contrasena' : request.form['pass'], 
+                'centro' : request.form['centro_u'],
+                'carrera' : request.form['carrera_u'],
+                'codigo' : request.form['codigo_u']
+                })
+            session ['nombre_u'] = request.form['username']
+            session ['codigo_u'] = request.form['codigo_u']
+            session ['centro_u'] = request.form['centro_u']
+            return redirect(url_for('index'))
+        return 'El usuario ya existe'
+    
+    print("Se dio de alta")
+    return  render_template("alta.html")
+
+@app.route('/baja', methods = ['POST','GET'])
+def baja():
+    baja=session ['folio']
+    if baja!='SinDato':
+        myquery = { "Folio": baja }
+        mycol2.delete_one(myquery)
+        print("Se dio de baja el folio:  "+baja)
+        #x = mycol2.delete_many({}) #Eliminar toda la coleccion
+        #print(x.deleted_count, " documents deleted.") #Muestra cuantos fueron eliminador
+        session.clear()
+        cod_adm=2222
+        pass_adm=3333
+        session ['codigo_ad'] = cod_adm    
+    return redirect(url_for('index'))
+
+
+
+@app.route('/consulta', methods = ['POST','GET'])
+def consulta():
+    consulta=request.form['name']
+    
+    myquery = { "name": consulta }
+
+    mydoc = mycol.find(myquery)
+    
+    im=""
+    for x in mydoc: #Mismo resultado que SELECT * en MySQL.
+        im=im + str(x)+  '<br>' 
+       
+    return f'<p>{im}</p>'
+
+@app.route('/consultaTodo')
+def consultaTodo():
+
+    
+    im=""
+    for x in mycol2.find(): #Mismo resultado que SELECT * en MySQL.
+        im=im + str(x)+  '<br>' 
+       
+    return f'<p>{im}</p>'
+@app.route('/login', methods = ['POST','GET'])
+def login():
+    
+    
+    cod= request.form['codigo_u']
+    cont=request.form['pass']
+    cod_us=int(cod)
+    cod_adm=2222
+    pass_adm=3333
+    login_user = mycol.find_one({'codigo' : cod,'contrasena' : cont})
+   
+    
+
+    
+    
+    #myquery = { "name": consulta }
+    #mydoc= mycol.find(myquery)
+
+    #print (cod+"--"+user_name)
+    #login_user = users.find_one({'codigo' : resp})
+
+    if login_user:
+        user_name=login_user['nombre']
+        universidad_name=login_user['centro']
+        user_name=user_name.upper()
+        universidad_name=universidad_name.upper()
+        session ['codigo_u'] = request.form['codigo_u']
+        session ['nombre_u'] = user_name
+        session ['centro_u'] = universidad_name
+        
+        return render_template("compra.html")
+        
+    if cod_us == cod_adm  :
+        if cont == pass_adm:
+            session ['codigo_ad'] = cod_adm
+        return render_template("miss_recibe.html")        
+        
+    return  "Error en el usuario o contraseña"
+
+
+@app.route('/registro_compra', methods = ['POST','GET'])
+def registro_compra():
+    bol=request.form['cantidad_bol']
+    usuario = session ['nombre_u']
+    codigo = session ['codigo_u'] 
+    centro = session ['centro_u'] 
+    compras = mycol2  #Se almacenara en una coleccion distinta a la de los usuarios
+    compras.insert_one({
+
+                'Usuario' : usuario,
+                'Codigo' : codigo,
+                'Centro' : centro,
+                'Boletos' : request.form['cantidad_bol'], 
+                'Total' : request.form['cantidad_total'],
+                'Folio' : request.form['folio'] 
+                
+                })
+    
+  
+    #return  render_template("principal.html")  
+    #return "Compraste {} con el codigo {}: ".format(bol,codigo)
+    session.clear()
+    return redirect(url_for('index'))
+@app.route('/revision', methods = ['POST','GET'])
+def revision():
+    folio=request.form['folio']
+    folio_existente = mycol2.find_one({'Folio' : folio})
+    if folio_existente:
+        #mensaje="El folio existe"
+        user_name=folio_existente['Usuario']
+        universidad_name=folio_existente['Centro']
+        codigo=folio_existente['Codigo']
+        boleto=folio_existente['Boletos']
+        total=folio_existente['Total']
+        folio=folio_existente['Folio']
+
+        user_name=user_name.upper()
+        universidad_name=universidad_name.upper()
+
+        session ['codigo_u'] = codigo
+        session ['nombre_u'] = user_name
+        session ['centro_u'] = universidad_name
+        session ['boleto'] = boleto
+        session ['total'] = total
+        session ['folio'] = folio
+       
+
+    
+        return render_template("miss_despacha.html") 
+    else:
+        #return "Error en el folio"
+        return render_template("miss_recibe.html")
+    
+    return render_template("miss_recibe.html")
+
+@app.route('/regresar', methods = ['POST','GET'])
+def regresar():
+    session.clear()
+    cod_adm=2222
+    pass_adm=3333
+
+    session ['codigo_ad'] = cod_adm    
+    return redirect(url_for('index'))
+
+@app.route('/salir', methods = ['POST','GET'])
+def salir():
+    session.clear()
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
+    app.secret_key = 'secret'
+    app.run(debug= True,port= 8000)
